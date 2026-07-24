@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <title>nixpush &mdash; provider-agnostic notification dispatch for NixOS</title>
+  <meta name="description" content="A stateless NixOS module and CLI that binds named channels to pluggable notification providers. Every caller does nixpush send --channel alerts '...'; repoint the channel's provider and every caller's behavior changes with it — nothing that calls send has to change at all.">
+
+  <meta name="theme-color" content="#0b1120" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+
+  <meta property="og:title" content="nixpush">
+  <meta property="og:description" content="Provider-agnostic notification dispatch for NixOS: named channels, pluggable providers, a synchronous CLI with a 3-class exit code. Repoint a channel, every caller's behavior changes with it.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://nixpush.corbet.ch">
+  <meta name="twitter:card" content="summary">
+
+  <link rel="stylesheet" href="https://v1.foss.design.corbet.ch/assets/base.css">
+  <link rel="stylesheet" href="./theme.css">
+</head>
+<body>
+
+<header class="hero">
+  <nav>
+    <a href="/" class="nav-brand">nixpush</a>
+    <div class="nav-links">
+      <a href="https://github.com/julian-corbet/nixpush-corbet-ch/blob/main/docs/index.md">Docs</a>
+      <a href="https://github.com/julian-corbet/nixpush-corbet-ch">GitHub</a>
+      <a href="#install">Install</a>
+      <details class="nav-family">
+        <summary>nix* family</summary>
+        <nav class="nav-family-panel" aria-label="The nix* project family">
+          <a href="https://nixapps.corbet.ch">nixapps <span>cluster apps as typed Nix</span></a>
+          <a href="https://nixarch.corbet.ch">nixarch <span>Arch's AUR breadth, Nix's declarative config</span></a>
+          <a href="https://nixfish.corbet.ch">nixfish <span>your fish config as code</span></a>
+          <a href="https://nixgpu.corbet.ch">nixgpu <span>share one GPU by priority</span></a>
+          <a href="https://nixk3s.corbet.ch">nixk3s <span>the host is a flake, the cluster is git</span></a>
+          <a href="https://nixllm.corbet.ch">nixllm <span>the model store IS the registry</span></a>
+          <a href="https://nixnas.corbet.ch">nixnas <span>declarative NAS on a USB stick</span></a>
+          <a href="https://nixpush.corbet.ch" aria-current="page">nixpush <span>one send call, any notification backend</span></a>
+          <a href="https://nixram.corbet.ch">nixram <span>RAM tuning that fits your machine</span></a>
+          <a href="https://nixremote.corbet.ch">nixremote <span>remote apps as real windows</span></a>
+          <a href="https://nixvibe.corbet.ch">nixvibe <span>a coding agent in a browser terminal</span></a>
+          <a href="https://nixvps.corbet.ch">nixvps <span>NixOS on sub-1GB VPSes</span></a>
+        </nav>
+      </details>
+    </div>
+  </nav>
+
+  <div class="hero-content">
+    <h1>nixpush</h1>
+    <p class="tagline">One send call. Repoint the backend, not the callers.</p>
+    <p class="subtitle">A stateless NixOS module and CLI that binds named <code>channels</code> to pluggable <code>providers</code>. Every script, systemd unit, and module that wants to alert someone calls <code>nixpush send --channel alerts "..."</code> and never knows or cares what actually receives it. No daemon, no queue &mdash; one delivery attempt, reported through a 3-class exit code.</p>
+    <div class="cta">
+      <a href="#install" class="btn btn-primary">Get started</a>
+      <a href="https://github.com/julian-corbet/nixpush-corbet-ch" class="btn btn-secondary">View on GitHub</a>
+    </div>
+  </div>
+
+  <div class="hero-demo">
+    <div class="terminal">
+      <div class="terminal-header">
+        <div class="terminal-dots"><span></span><span></span><span></span></div>
+        <span class="terminal-title">nixpush &mdash; three configured channels, one CLI</span>
+      </div>
+      <pre class="terminal-body"><code><span class="prompt">$</span> nixpush channels
+<span class="output">alerts   -&gt; ntfy
+digest   -&gt; ntfy
+paging   -&gt; ntfy</span>
+
+<span class="prompt">$</span> nixpush doctor
+<span class="output">alerts:  ok
+digest:  ok
+paging:  ok</span>
+
+<span class="prompt">$</span> nixpush send --tag disk_full "root filesystem above 90% on example-host"
+<span class="output">delivered (http 200)</span>
+
+<span class="prompt">$</span> nixpush send --channel digest --priority low --json "nightly backup completed"
+<span class="output">{"status":"delivered","channel":"digest","provider":"ntfy","http_status":200}</span></code></pre>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<section class="how-it-works">
+  <div class="container">
+    <h2>How it works</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <h3>Bind a channel to a provider</h3>
+        <p>Declare <code>services.nixpush.channels.alerts.provider = "ntfy"</code> once, with whatever settings that provider needs. Add a <code>secretFile</code> if the backend needs a token &mdash; read fresh per invocation, never written to the Nix store.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <h3>Call <code>nixpush send</code> from anywhere</h3>
+        <p>A script, a systemd <code>ExecStopPost=</code>, another module's <code>mkSendCommand</code> helper &mdash; every caller names a channel, not a backend, and reads the exit code.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <h3>Repoint the channel later</h3>
+        <p>Swap <code>alerts.provider</code> from <code>ntfy</code> to a self-hosted Gotify, or anything speaking the provider contract. Every caller's behavior changes with it &mdash; nothing that calls <code>send</code> has to change at all.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="features">
+  <div class="container">
+    <h2>What you get</h2>
+    <div class="feature-grid">
+      <div class="feature">
+        <h3>One call site, any backend</h3>
+        <p>Modules and scripts depend on a channel name, never on ntfy, Gotify, or whatever comes next. The provider is a config value, not a rewrite.</p>
+      </div>
+      <div class="feature">
+        <h3>A real first-party provider</h3>
+        <p>The <code>ntfy</code> provider is a working <code>curl</code>+<code>jq</code> implementation &mdash; tags, actions, click URLs, attachments, priorities &mdash; not a stub standing in for a future one.</p>
+      </div>
+      <div class="feature">
+        <h3>Three exit codes, wired for real use</h3>
+        <p><code>0</code> delivered, <code>3</code> permanently rejected, anything else transient &mdash; directly usable in shell and directly wireable into <code>ExecStartPost=</code>, <code>OnFailure=</code>, or <code>Restart=on-failure</code> without glue code.</p>
+      </div>
+      <div class="feature">
+        <h3>Secrets stay out of the store</h3>
+        <p><code>channels.&lt;name&gt;.secretFile</code> points at a runtime-readable file &mdash; sops-nix, agenix, anything &mdash; sourced into the provider's environment for that one <code>send</code> and never rendered into <code>channels.json</code>.</p>
+      </div>
+      <div class="feature">
+        <h3>Per-channel defaults</h3>
+        <p><code>defaultPriority</code> and <code>defaultTags</code> live on the channel, once. A paging channel is <code>urgent</code> by default; a digest channel is <code>low</code> &mdash; callers that don't care never have to say so.</p>
+      </div>
+      <div class="feature">
+        <h3><code>doctor</code>, before anything fires</h3>
+        <p>Validates every channel &mdash; provider resolves, settings pass the provider's own <code>check-settings</code> &mdash; without sending. Wire it into <code>ExecStartPre=</code> or CI to catch a broken channel before it matters.</p>
+      </div>
+      <div class="feature">
+        <h3>A provider is one contract, any language</h3>
+        <p>stdin JSON envelope in, an exit code out. A community provider for Gotify, Pushover, or Matrix needs zero dependency on nixpush internals &mdash; see <a href="https://github.com/julian-corbet/nixpush-corbet-ch/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a>.</p>
+      </div>
+      <div class="feature">
+        <h3>Honest about v1's scope</h3>
+        <p>No retry/backoff, no delivery-status querying, no fan-out to multiple channels in one call &mdash; the caller's job, by design. A durable-spool <code>nixpush-daemon</code> is a natural v2, under the same provider contract.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="architecture">
+  <div class="container">
+    <h2>Architecture</h2>
+    <pre class="arch-diagram"><code>caller  (module / script / systemd ExecStopPost=)
+   │
+   │  nixpush send --channel alerts "..."
+   ▼
+┌─────────────────────────┐      /etc/nixpush/channels.json
+│  nixpush  (core CLI)    │◄──── channel → provider + settings
+│  resolves the channel   │      (rendered at build time, read-only)
+└────────────┬─────────────┘
+             │ stdin:  JSON envelope (message, title, priority, tags, ...)
+             │ env:    provider settings + secretFile contents (if any)
+             ▼
+┌─────────────────────────┐
+│  nixpush-provider-ntfy  │  curl + jq → ntfy.sh or self-hosted
+│  (or any provider that  │  exit 0 delivered / 3 rejected / other transient
+│   speaks the contract)  │
+└─────────────────────────┘</code></pre>
+    <div class="arch-details">
+      <div class="arch-detail">
+        <h3>The core never speaks HTTP</h3>
+        <p>Core resolves config and execs the provider &mdash; it has no notion of a request, a token format, or a wire protocol. Providers own the transport entirely, so adding a new backend never touches core.</p>
+      </div>
+      <div class="arch-detail">
+        <h3>One contract, either side of it</h3>
+        <p>First-party or third-party, a provider is a small executable: stdin JSON in, one HTTP-ish call, an exit code in {0, 3, other} out. That's the whole surface nixpush depends on.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="install" class="install">
+  <div class="container">
+    <h2>Install</h2>
+    <div class="install-grid">
+      <div class="install-method">
+        <h3>1. Add the flake input</h3>
+        <pre><code>inputs.nixpush.url = "github:julian-corbet/nixpush-corbet-ch";</code></pre>
+      </div>
+      <div class="install-method">
+        <h3>2. Import and declare a channel</h3>
+        <pre><code>imports = [ inputs.nixpush.nixosModules.default ];
+
+services.nixpush = {
+  enable = true;
+  defaultChannel = "alerts";
+  ntfy.enable = true;
+  channels.alerts.provider = "ntfy";
+  channels.alerts.settings.topic = "REPLACE_ME_UNGUESSABLE_TOPIC";
+};</code></pre>
+      </div>
+      <div class="install-method">
+        <h3>Build from source</h3>
+        <pre><code>git clone https://github.com/julian-corbet/nixpush-corbet-ch
+cd nixpush-corbet-ch
+nix build .#nixpush .#nixpush-provider-ntfy</code></pre>
+        <p>Needs only Nix with flakes enabled. <code>nix flake check</code> runs the same build + shellcheck CI does.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="commands">
+  <div class="container">
+    <h2>CLI reference</h2>
+    <div class="table-scroll">
+      <table>
+        <tbody>
+          <tr><td><code>nixpush send [--channel NAME] MESSAGE</code></td><td>Send once. Also takes <code>--title</code>, <code>--priority</code>, <code>--tag</code>, <code>--click</code>, <code>--attach</code>, <code>--action</code>, <code>--json</code>. <code>--channel</code> is optional if <code>defaultChannel</code> is set.</td></tr>
+          <tr><td><code>nixpush channels [--names-only]</code></td><td>List configured channel names and their bound provider.</td></tr>
+          <tr><td><code>nixpush doctor [--channel NAME]</code></td><td>Dry-run config validation &mdash; no send. Exits nonzero if any checked channel is misconfigured.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="container">
+    <div class="footer-links">
+      <a href="https://github.com/julian-corbet/nixpush-corbet-ch/blob/main/docs/index.md">Docs</a>
+      <a href="https://github.com/julian-corbet/nixpush-corbet-ch">Source</a>
+      <a href="https://github.com/julian-corbet/nixpush-corbet-ch/blob/main/CONTRIBUTING.md">Provider contract</a>
+      <a href="https://github.com/julian-corbet/nixpush-corbet-ch/tree/main/experiments">Experiments</a>
+      <a href="https://github.com/julian-corbet/nixpush-corbet-ch/issues">Issues</a>
+    </div>
+    <p>
+      <a href="https://github.com/julian-corbet/nixpush-corbet-ch/blob/main/LICENSE">MIT</a> &middot;
+      <a href="https://github.com/julian-corbet">Julian Corbet</a>
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>

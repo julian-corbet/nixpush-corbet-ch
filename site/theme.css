@@ -1,0 +1,53 @@
+/* =====================================================================
+   nixpush / site / theme.css
+   Project-specific theme override for the foss/v1 design system.
+   Only touches the tokens documented as "safe to override" in the
+   design-corbet-ch project-pages theming contract — retints the accent
+   hue to fuchsia/magenta, distinct from every sibling in use (nixarch
+   teal, nixvps amber, nixram emerald, nixapps violet, nixgpu red, nixk3s
+   blue, nixremote lime, nixfish/nixllm pink, nixnas/nixvibe cyan).
+
+   Load order:
+     <link rel="stylesheet" href="https://v1.foss.design.corbet.ch/assets/base.css">
+     <link rel="stylesheet" href="./theme.css">
+   ===================================================================== */
+
+:root {
+  /* Dark mode (and default) accent — fuchsia-400. */
+  --accent: #e879f9;
+  --accent-hover: #f0abfc;
+  --accent-dim: rgba(232, 121, 249, 0.12);
+  --accent-glow: rgba(232, 121, 249, 0.08);
+  --accent-text: #0b1120;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    /* Darker fuchsia for light mode — #a21caf on #ffffff is ~6.3:1,
+       comfortably AA for normal text (computed via WCAG relative
+       luminance, not eyeballed). */
+    --accent: #a21caf;
+    --accent-hover: #86198f;
+    --accent-dim: rgba(162, 28, 175, 0.08);
+    --accent-glow: rgba(162, 28, 175, 0.06);
+    --accent-text: #ffffff;
+  }
+}
+
+/* Mirror both variants for the explicit data-theme toggle, so it wins
+   over the OS media query in both directions. */
+:root[data-theme="dark"] {
+  --accent: #e879f9;
+  --accent-hover: #f0abfc;
+  --accent-dim: rgba(232, 121, 249, 0.12);
+  --accent-glow: rgba(232, 121, 249, 0.08);
+  --accent-text: #0b1120;
+}
+
+:root[data-theme="light"] {
+  --accent: #a21caf;
+  --accent-hover: #86198f;
+  --accent-dim: rgba(162, 28, 175, 0.08);
+  --accent-glow: rgba(162, 28, 175, 0.06);
+  --accent-text: #ffffff;
+}
