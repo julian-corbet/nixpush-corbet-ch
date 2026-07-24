@@ -54,7 +54,12 @@ writeShellApplication {
     fi
 
     server=$(jq -r '.serverUrl // empty' <<<"$settings")
-    topic=$(jq -r '.topic // empty' <<<"$settings")
+    # NTFY_TOPIC (if set) wins over settings.topic -- mirrors NTFY_TOKEN exactly: both are
+    # sourced from the channel's `secretFile` (never rendered into channels.json), which lets
+    # a topic that IS the credential (ntfy's own "unguessable topic name as shared secret"
+    # convention) stay out of the Nix store entirely. settings.topic remains the right choice
+    # for a non-secret routing key -- both paths are supported, env wins when both are set.
+    topic="''${NTFY_TOPIC:-$(jq -r '.topic // empty' <<<"$settings")}"
 
     # --- check-settings: validate shape only, no network call. ---------
     if [ "$subcommand" = "check-settings" ]; then
@@ -70,7 +75,7 @@ writeShellApplication {
         printf 'nixpush-provider-ntfy: %s\n' "''${reasons[@]}" >&2
         exit 1
       fi
-      echo "nixpush-provider-ntfy: settings ok (server=$server, topic=$topic, token=$([ -n "''${NTFY_TOKEN:-}" ] && echo set || echo unset))" >&2
+      echo "nixpush-provider-ntfy: settings ok (server=$server, topic=$topic, topic_source=$([ -n "''${NTFY_TOPIC:-}" ] && echo env || echo settings), token=$([ -n "''${NTFY_TOKEN:-}" ] && echo set || echo unset))" >&2
       exit 0
     fi
 

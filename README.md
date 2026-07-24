@@ -147,6 +147,24 @@ systemd.services.example-batch-job = {
   setups need none at all — ntfy's own convention treats an unguessable topic name as the
   shared secret. Per-channel `secretFile` overrides this for that channel only.
 
+**Keeping the topic itself out of the Nix store:** `settings.topic` is plain Nix-eval-time
+config, rendered verbatim into `/etc/nixpush/channels.json` — fine when the topic is a
+non-secret routing key, but *not* fine when the topic name itself is the credential (ntfy's
+"unguessable topic name as shared secret" convention, used for e.g. paging/alerting channels
+where you don't want the topic readable from the store regardless of `/etc` file mode). For
+that case, set `NTFY_TOPIC=<topic>` in the channel's `secretFile` — same file, same mechanism
+as `NTFY_TOKEN`, sourced fresh into the provider's environment per-invocation and never
+written to the store. `NTFY_TOPIC` wins over `settings.topic` when both are present, so
+`settings.topic` can simply be omitted for a fully secret-sourced channel:
+
+```nix
+channels.paging = {
+  provider = "ntfy";
+  secretFile = "/run/secrets/nixpush-paging.env";  # contains NTFY_TOPIC=... and/or NTFY_TOKEN=...
+  defaultPriority = "urgent";
+};
+```
+
 ## Provider contract
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) — the stdin JSON envelope, the environment variables a

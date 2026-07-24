@@ -107,6 +107,14 @@ returned HTTP status class. It implements every `MAY`, too (`check-settings` and
 it doubles as a template for a new provider — start by copying its shape and swapping the
 `curl` call for your backend's own HTTP (or other transport) call.
 
+It's also the reference example of a provider accepting a *secret-sourced* non-token setting:
+`NTFY_TOPIC`, if present in the environment (i.e. sourced from the channel's `secretFile`,
+same as `NTFY_TOKEN`), wins over `settings.topic` from `NIXPUSH_PROVIDER_SETTINGS`. Any
+provider whose backend uses an unguessable-value-as-credential (not just bearer tokens) can
+follow this same pattern — prefer an env var, fall back to the settings JSON — to let a
+consumer choose per-channel whether that value is a non-secret routing key or something that
+must stay out of the Nix store.
+
 A provider can be written in any language that can read stdin, read environment variables,
 make a network call with a timeout, and set an exit code — nothing here is bash-specific,
 that's just what the first-party provider happens to use.
