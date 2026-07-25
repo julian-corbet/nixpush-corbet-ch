@@ -4,3 +4,4 @@ result-*
 .envrc.local
 *.swp
 .DS_Store
+.wrangler/
