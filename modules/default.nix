@@ -7,14 +7,14 @@
 # provider module, and flake.nix's `nixosModules.default` for the bundle
 # most consumers actually want.
 #
-# EVAL SAFETY: `services.nixpush.channels.<name>.provider` is a free-form
+# EVAL SAFETY: `nixpush.channels.<name>.provider` is a free-form
 # string, not `types.enum (attrNames cfg.providers)` -- providers can be
 # registered by OTHER modules (modules/providers/ntfy.nix, or a
 # community provider a consumer adds directly), and NixOS's module system
 # resolves imports and options in one pass with no fixed ordering between
 # them, so at the point this file's own option declarations are merged
 # there is no guarantee every provider has registered itself into
-# `services.nixpush.providers` yet. Validating the *string* is therefore
+# `nixpush.providers` yet. Validating the *string* is therefore
 # deferred to `assertions` below (checked once `config` is fully
 # resolved), and `providerExe` below never indexes `cfg.providers`
 # directly for the same reason -- see the `cfg.providers.${...} or null`
@@ -24,7 +24,7 @@
 { lib, config, pkgs, ... }:
 
 let
-  cfg = config.services.nixpush;
+  cfg = config.nixpush;
 
   # Renders one channel's entry in /etc/nixpush/channels.json. Never
   # dereferences `secretFile` -- its path is recorded so the CLI knows
@@ -52,7 +52,7 @@ let
     };
 in
 {
-  options.services.nixpush = {
+  options.nixpush = {
     enable = lib.mkEnableOption "nixpush notification dispatch";
 
     package = lib.mkOption {
@@ -67,7 +67,7 @@ in
       default = null;
       description = ''
         Channel used by `nixpush send` when `--channel` is omitted.
-        Must be a key present in `services.nixpush.channels` (asserted).
+        Must be a key present in `nixpush.channels` (asserted).
       '';
     };
 
@@ -82,7 +82,7 @@ in
         automatically when enabled; third-party/community providers are
         added the same way, one line each:
 
-          services.nixpush.providers.pushover = inputs.nixpush-pushover.packages.${pkgs.system}.default;
+          nixpush.providers.pushover = inputs.nixpush-pushover.packages.${pkgs.system}.default;
       '';
     };
 
@@ -94,7 +94,7 @@ in
     # channel sets its own.
     #
     # WHY THIS EXISTS instead of the more obvious-looking
-    # `services.nixpush.channels = lib.mapAttrs (...) cfg.channels`
+    # `nixpush.channels = lib.mapAttrs (...) cfg.channels`
     # (iterate the channels that already exist and inject defaults back
     # into them): that expression makes `channels`'s own value a
     # function of `channels`'s own merged value -- an actual, not just
@@ -105,7 +105,7 @@ in
     # (via a sibling option, `provider`, referencing an independent
     # registry) has nothing circular in its dependency graph:
     # channels[name] depends on providerDefaults depends on
-    # services.nixpush.<provider>.* -- never back on channels.
+    # nixpush.<provider>.* -- never back on channels.
     providerDefaults = lib.mkOption {
       type = lib.types.attrsOf (lib.types.submodule {
         options = {
@@ -124,7 +124,7 @@ in
       description = ''
         Populated by provider modules (e.g. modules/providers/ntfy.nix),
         not meant to be set directly in end-user configuration -- set
-        `services.nixpush.<provider>.*` options instead.
+        `nixpush.<provider>.*` options instead.
       '';
     };
 
@@ -135,7 +135,7 @@ in
         options = {
           provider = lib.mkOption {
             type = lib.types.str;
-            description = "Key into `services.nixpush.providers` (asserted to exist).";
+            description = "Key into `nixpush.providers` (asserted to exist).";
           };
 
           settings = lib.mkOption {
@@ -177,7 +177,7 @@ in
         # `providerDefaults` above) unless the channel sets its own --
         # `config.provider` here is THIS submodule instance's own,
         # already-resolved `provider` field (a sibling option, safe to
-        # depend on); `cfg` is the OUTER `services.nixpush` config,
+        # depend on); `cfg` is the OUTER `nixpush` config,
         # captured via closure from the top of this file -- a different,
         # non-circular option (`providerDefaults`), not `channels` itself.
         config =
@@ -193,7 +193,7 @@ in
 
     # Nix-level helper surface -- see lib/default.nix. Exposed here (not
     # just as a flake output) so a consuming module can write
-    # `config.services.nixpush.lib.mkSendCommand { ... }` without an
+    # `config.nixpush.lib.mkSendCommand { ... }` without an
     # extra `inputs.nixpush.lib` plumb-through. `types.raw` is
     # deliberate: this attrset carries a function value, which the
     # module system cannot usefully type-check or merge -- `raw` opts
@@ -212,11 +212,11 @@ in
         (name: channel: {
           assertion = lib.hasAttr channel.provider cfg.providers;
           message = ''
-            services.nixpush.channels.${name}.provider is set to
+            nixpush.channels.${name}.provider is set to
             "${channel.provider}", but no such key exists in
-            services.nixpush.providers. Registered providers: ${
+            nixpush.providers. Registered providers: ${
               if cfg.providers == { }
-              then "(none -- did you forget services.nixpush.ntfy.enable, or to add a community provider to services.nixpush.providers?)"
+              then "(none -- did you forget nixpush.ntfy.enable, or to add a community provider to nixpush.providers?)"
               else lib.concatStringsSep ", " (lib.attrNames cfg.providers)
             }
           '';
@@ -226,9 +226,9 @@ in
         {
           assertion = cfg.defaultChannel == null || lib.hasAttr cfg.defaultChannel cfg.channels;
           message = ''
-            services.nixpush.defaultChannel is set to
+            nixpush.defaultChannel is set to
             "${toString cfg.defaultChannel}", but no such key exists in
-            services.nixpush.channels.
+            nixpush.channels.
           '';
         }
       ];

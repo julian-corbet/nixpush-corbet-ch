@@ -16,7 +16,7 @@
       nixosModules.core = import ./modules/default.nix;
 
       # First-party ntfy provider: registers itself into
-      # `services.nixpush.providers.ntfy` and supplies per-channel
+      # `nixpush.providers.ntfy` and supplies per-channel
       # defaults (serverUrl/topic/tokenFile). Needs `nixosModules.core`
       # imported too (or via `nixosModules.default` below, which bundles
       # both).
@@ -37,7 +37,7 @@
         });
 
       # Nix-level `mkSendCommand` helper -- also reachable as
-      # `config.services.nixpush.lib.mkSendCommand` once
+      # `config.nixpush.lib.mkSendCommand` once
       # `nixosModules.core` is imported, without this extra plumb-through.
       lib = import ./lib/default.nix { inherit lib; };
 

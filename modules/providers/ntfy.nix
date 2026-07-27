@@ -1,19 +1,19 @@
 # modules/providers/ntfy.nix
 #
 # First-party ntfy provider: registers itself into
-# `services.nixpush.providers.ntfy` and supplies `serverUrl` / `topic` /
+# `nixpush.providers.ntfy` and supplies `serverUrl` / `topic` /
 # `tokenFile` as per-channel DEFAULTS for any channel with
 # `provider = "ntfy"`, so a single-topic setup needs only this top-level
 # block and `channels.<name>.provider = "ntfy";` -- no repeated
 # `settings.serverUrl` on every channel.
 #
 # HOW: this module writes ONE flat value into
-# `services.nixpush.providerDefaults.ntfy` -- a registry option owned by
+# `nixpush.providerDefaults.ntfy` -- a registry option owned by
 # core (modules/default.nix) that does not depend on `channels` in any
 # way -- and each channel submodule (also in modules/default.nix) reads
 # that registry, keyed by its OWN sibling `provider` field, to compute
 # its `settings`/`secretFile` defaults. This module never reads
-# `services.nixpush.channels` at all. An earlier version of this file
+# `nixpush.channels` at all. An earlier version of this file
 # tried to inject defaults by `lib.mapAttrs (...) cfg.channels` directly
 # -- i.e. making `channels`'s own value a function of `channels`'s own
 # merged value -- and hit a real `infinite recursion encountered` at
@@ -24,11 +24,11 @@
 { lib, config, pkgs, ... }:
 
 let
-  cfg = config.services.nixpush;
+  cfg = config.nixpush;
   ntfyCfg = cfg.ntfy;
 in
 {
-  options.services.nixpush.ntfy = {
+  options.nixpush.ntfy = {
     enable = lib.mkEnableOption "first-party ntfy provider for nixpush";
 
     package = lib.mkOption {
@@ -72,9 +72,9 @@ in
   };
 
   config = lib.mkIf ntfyCfg.enable {
-    services.nixpush.providers.ntfy = ntfyCfg.package;
+    nixpush.providers.ntfy = ntfyCfg.package;
 
-    services.nixpush.providerDefaults.ntfy = {
+    nixpush.providerDefaults.ntfy = {
       settings =
         { serverUrl = ntfyCfg.serverUrl; }
         // lib.optionalAttrs (ntfyCfg.topic != null) { topic = ntfyCfg.topic; };

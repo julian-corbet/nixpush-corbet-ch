@@ -53,7 +53,7 @@ writeShellApplication {
 
     require_channels_file() {
       if [ ! -r "$channels_file" ]; then
-        die 2 "cannot read channels file: $channels_file (is services.nixpush.enable set in your NixOS configuration?)"
+        die 2 "cannot read channels file: $channels_file (is nixpush.enable set in your NixOS configuration?)"
       fi
       jq -e . >/dev/null 2>&1 < "$channels_file" \
         || die 2 "channels file is not valid JSON: $channels_file"
@@ -65,7 +65,7 @@ writeShellApplication {
         name="$requested"
       else
         name=$(jq -r '.defaultChannel // empty' "$channels_file")
-        [ -n "$name" ] || die 2 "no --channel given and services.nixpush.defaultChannel is unset"
+        [ -n "$name" ] || die 2 "no --channel given and nixpush.defaultChannel is unset"
       fi
       jq -e --arg n "$name" '.channels[$n]' "$channels_file" >/dev/null 2>&1 \
         || die 2 "unknown channel \"$name\" (see: nixpush channels)"
@@ -269,7 +269,7 @@ writeShellApplication {
 
         if [ "$provider_exe" = "null" ] || [ -z "$provider_exe" ]; then
           ok=false
-          reason="provider not resolvable (misconfigured services.nixpush.providers)"
+          reason="provider not resolvable (misconfigured nixpush.providers)"
         elif [ -n "$secret_file" ] && [ "$secret_file" != "null" ] && [ ! -r "$secret_file" ]; then
           ok=false
           reason="secretFile not readable: $secret_file"

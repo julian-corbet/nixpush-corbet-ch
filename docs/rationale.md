@@ -57,7 +57,7 @@ reinventing it slightly differently.
 
 ## [3] `secretFile` is sourced fresh per invocation, never baked into `channels.json`
 
-**Decision:** `services.nixpush.channels.<name>.secretFile` is recorded as a *path* in
+**Decision:** `nixpush.channels.<name>.secretFile` is recorded as a *path* in
 `/etc/nixpush/channels.json`, never dereferenced by Nix. The core CLI reads the file at
 `send` time, sources it into a subshell that only lives for the duration of that one exec,
 and the values never appear in `channels.json`, never get copied into the Nix store, and

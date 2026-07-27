@@ -42,7 +42,7 @@ dependency on nixpush internals. The first-party `ntfy` provider — [pkgs/nixpu
 
 ```nix
 # configuration.nix
-services.nixpush = {
+nixpush = {
   enable = true;
   defaultChannel = "alerts";
 
@@ -101,7 +101,7 @@ Wired into another unit, with retry left to systemd rather than nixpush:
 ```nix
 systemd.services.example-batch-job = {
   serviceConfig = {
-    ExecStopPost = "${config.services.nixpush.lib.mkSendCommand {
+    ExecStopPost = "${config.nixpush.lib.mkSendCommand {
       channel = "paging"; priority = "urgent";
     }} 'example-batch-job failed on %H'";
     Restart = "on-failure";
@@ -112,7 +112,7 @@ systemd.services.example-batch-job = {
 
 ## Options
 
-`services.nixpush.*` (core — [modules/default.nix](modules/default.nix)):
+`nixpush.*` (core — [modules/default.nix](modules/default.nix)):
 
 - `enable` — turn nixpush on: renders `/etc/nixpush/channels.json` and installs the CLI.
 - `package` — the `nixpush` CLI package (default: this repo's own).
@@ -135,7 +135,7 @@ systemd.services.example-batch-job = {
   wiring a send into another module's unit (`ExecStopPost=`, `OnFailure=`, …); see
   [lib/default.nix](lib/default.nix).
 
-`services.nixpush.ntfy.*` (first-party provider — [modules/providers/ntfy.nix](modules/providers/ntfy.nix)):
+`nixpush.ntfy.*` (first-party provider — [modules/providers/ntfy.nix](modules/providers/ntfy.nix)):
 
 - `enable` — register the `ntfy` provider and enable its per-channel defaults below.
 - `package` — the `nixpush-provider-ntfy` executable package.
@@ -189,7 +189,7 @@ nixpush doctor [--channel NAME]
     ExecStartPre= or CI.
 ```
 
-`--channel` is optional if `services.nixpush.defaultChannel` is set; omitting both is a hard
+`--channel` is optional if `nixpush.defaultChannel` is set; omitting both is a hard
 error. `MESSAGE` is the only required argument for `send`. Exit codes mirror the provider
 contract exactly: `0` delivered, `3` permanently rejected, `2` usage/config error (from the
 CLI itself, before any provider ran), anything else transient/unknown — directly usable in

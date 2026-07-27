@@ -27,10 +27,10 @@ A provider is a Nix package exposing exactly one executable, `nixpush-provider-<
 registered with:
 
 ```nix
-services.nixpush.providers.<name> = pkgs.<pkg>;
+nixpush.providers.<name> = pkgs.<pkg>;
 ```
 
-(First-party providers additionally ship a NixOS module — e.g. `services.nixpush.ntfy.enable`
+(First-party providers additionally ship a NixOS module — e.g. `nixpush.ntfy.enable`
 — that does this registration for you and layers on provider-specific top-level options. A
 community provider doesn't need one; registering the package directly is enough.)
 
@@ -130,7 +130,7 @@ that's just what the first-party provider happens to use.
 3. A new community provider PR against *this* repo is generally out of scope — nixpush's own
    repo ships core + the first-party ntfy provider only, by design (see the provider registry
    note in `modules/default.nix`). Community providers live in their own repos and register
-   into `services.nixpush.providers` from the consumer's flake; open an issue here to get
+   into `nixpush.providers` from the consumer's flake; open an issue here to get
    listed in README.md's provider list once yours exists and works.
 
 ## Reporting issues

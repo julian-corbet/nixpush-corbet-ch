@@ -95,7 +95,7 @@ paging:  ok</span>
       <div class="step">
         <div class="step-num">1</div>
         <h3>Bind a channel to a provider</h3>
-        <p>Declare <code>services.nixpush.channels.alerts.provider = "ntfy"</code> once, with whatever settings that provider needs. Add a <code>secretFile</code> if the backend needs a token &mdash; read fresh per invocation, never written to the Nix store.</p>
+        <p>Declare <code>nixpush.channels.alerts.provider = "ntfy"</code> once, with whatever settings that provider needs. Add a <code>secretFile</code> if the backend needs a token &mdash; read fresh per invocation, never written to the Nix store.</p>
       </div>
       <div class="step">
         <div class="step-num">2</div>
@@ -195,7 +195,7 @@ paging:  ok</span>
         <h3>2. Import and declare a channel</h3>
         <pre><code>imports = [ inputs.nixpush.nixosModules.default ];
 
-services.nixpush = {
+nixpush = {
   enable = true;
   defaultChannel = "alerts";
   ntfy.enable = true;

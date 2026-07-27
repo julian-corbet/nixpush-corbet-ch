@@ -5,7 +5,7 @@
 # syntax. Intentionally thin -- "shell out to the binary" stays the real
 # integration seam; this only saves callers from hand-assembling the
 # command line. Exposed both as a flake output (`nixpush.lib`) and, for
-# convenience, as `config.services.nixpush.lib` once the core module is
+# convenience, as `config.nixpush.lib` once the core module is
 # imported (see modules/default.nix).
 { lib }:
 {
@@ -16,7 +16,7 @@
   # trailing MESSAGE baked in -- append your own quoted message, e.g.:
   #
   #   systemd.services.example.serviceConfig.ExecStopPost =
-  #     "${config.services.nixpush.lib.mkSendCommand { channel = "alerts"; priority = "urgent"; }} 'unit %n failed'";
+  #     "${config.nixpush.lib.mkSendCommand { channel = "alerts"; priority = "urgent"; }} 'unit %n failed'";
   #
   # Every argument is shell-escaped via `lib.escapeShellArg`; nothing
   # here interpolates untrusted values unescaped.
