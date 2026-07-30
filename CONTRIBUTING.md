@@ -121,7 +121,11 @@ that's just what the first-party provider happens to use.
 
 ## Before you open a PR
 
-1. `nix flake check` — evaluates both NixOS modules and builds both packages.
+1. `nix flake check` — evaluates both NixOS modules, builds both packages, evaluates a
+   composed example host (`examples/host/configuration.nix`), checks the `durable`/`fallback`
+   option assertions both directions (`checks/assertions.nix`), and runs a build-level proof
+   that actually exercises the durable spool and channel fallback at runtime
+   (`checks/behavior.nix`).
 2. If you're touching `pkgs/nixpush.nix` or `pkgs/nixpush-provider-ntfy.nix`: run
    `shellcheck` over the rendered script (`nix build .#nixpush && shellcheck result/bin/nixpush`,
    similarly for the provider) — `writeShellApplication` already runs this at build time, so a

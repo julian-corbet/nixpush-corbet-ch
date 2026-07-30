@@ -36,6 +36,15 @@
           default = self.packages.${system}.nixpush;
         });
 
+      checks = forAllSystems (system:
+        import ./checks {
+          pkgs = pkgsFor system;
+          inherit lib nixpkgs system;
+          nixpushCoreModule = self.nixosModules.core;
+          nixpushNtfyModule = self.nixosModules.ntfy-provider;
+          nixpushDefaultModule = self.nixosModules.default;
+        });
+
       # Nix-level `mkSendCommand` helper -- also reachable as
       # `config.nixpush.lib.mkSendCommand` once
       # `nixosModules.core` is imported, without this extra plumb-through.

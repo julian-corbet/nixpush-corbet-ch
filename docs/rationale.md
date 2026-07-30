@@ -4,32 +4,37 @@ Numbered design decisions, referenced by number from code comments and from the 
 Each entry states the decision, the alternative it was weighed against, and why the
 alternative lost — not just the outcome.
 
-## [1] Stateless synchronous CLI, no daemon, no queue (core v1)
+## [1] Stateless synchronous CLI by default, no daemon (core)
 
-**Decision:** `nixpush send` performs exactly one delivery attempt and returns. There is no
-daemon and no durable spool in core.
+**Decision:** `nixpush send` performs exactly one delivery attempt and returns, for every
+channel, unless that specific channel opts into `durable = true`. There is no daemon anywhere
+in nixpush — durability, where a channel asks for it, is a plain one-shot `nixpush flush`
+invocation on a systemd timer, never a resident process; see [4] below for exactly how that
+stays true.
 
 **Alternative considered:** an always-on daemon with a durable local spool, atomic enqueue,
-and its own retry/backoff/dead-lettering — "enqueue must succeed even when the network is
-down."
+and its own retry/backoff/dead-lettering for EVERY channel, unconditionally — "enqueue must
+succeed even when the network is down."
 
-**Why the alternative lost:** that argument is real, but it's solving a problem that, for
-nixpush's actual primary caller shape, already has an owner. Callers that fire alerts on
-infrastructure failure (health-check daemons, watchdog timers, `OnFailure=` units) are
-exactly the kind of caller that already runs on a recurring schedule and already needs to
-keep its *own* state about what it's alerting on and when it last succeeded. Bolting a
-second, independent queue-with-retry-and-backoff state machine underneath that, inside
-nixpush itself, means two systems trying to own the same "did this get through yet" question
-— more surface area (atomic write/rename discipline, crash-recovery sweeps, backpressure
-eviction, clock-skew-sensitive backoff timers) for a guarantee the caller was often going to
-need to provide anyway to correctly interpret "no daemon queue" health at the application
-level.
+**Why the alternative lost, as the DEFAULT:** for nixpush's most common caller shape —
+health-check daemons, watchdog timers, anything that already runs on a recurring schedule —
+that argument is solving a problem that already has an owner. Such a caller already needs to
+keep its *own* state about what it's alerting on and when it last succeeded; a still-failing
+probe gets another chance to alert on its very next tick regardless of whether THIS alert's
+`send` made it through. Bolting a second, independent queue-with-retry-and-backoff state
+machine underneath every send, for every channel, means two systems trying to own the same
+"did this get through yet" question for a caller shape that mostly didn't need it.
 
-The daemon+spool idea isn't discarded, just deferred — see the README's
-[Non-goals & future direction](../README.md#non-goals--future-direction). If a future caller
-genuinely needs delivery to survive *its own* process dying mid-alert (not just a network
-blip), that's a `nixpush-daemon` package layered on top of the same provider contract, with
-zero changes required to core or to existing providers.
+**Why it is not the ONLY shape nixpush supports, unlike v1's original framing:** that
+argument stops holding for a caller whose alert is itself a one-off with no next tick to
+retry from — `OnFailure=` on a unit that only ever fails once, a script's own `trap ERR`, a
+one-shot migration's failure path. For that shape, a network blip during the ten seconds the
+alerting process was alive really does mean the alert is gone forever, with nothing anywhere
+positioned to notice and re-fire it. `channels.<name>.durable = true` (see [4]) is exactly
+this repo's answer for that caller shape — added later than v1, once a real consumer
+(nixwatch's own generalization of a private `fleet-watchdog.nix`) hit it, not spelled out here
+originally. The decision above still holds as the DEFAULT for every channel that doesn't ask
+otherwise; it was never a claim that no caller would ever need more.
 
 ## [2] Three exit-code classes, not two, not five
 
@@ -77,3 +82,102 @@ because the provider only ever sees an already-set environment variable. This is
 same shape most systemd units already use for `EnvironmentFile=`; nixpush's core CLI is
 effectively doing that sourcing step itself instead of delegating it to systemd, since a
 provider is a one-shot subprocess, not a unit of its own.
+
+## [4] An opt-in, per-channel spool -- not a repo-wide daemon
+
+**Decision:** `nixpush.channels.<name>.durable = true;` gives exactly that one channel a
+crash-safe, on-disk spool: `nixpush send` enqueues instead of delivering inline, and a
+`nixpush flush` invocation -- itself a plain, one-shot CLI call, never a long-running process
+-- drains it. `modules/default.nix` renders the `nixpush-flush` systemd service+timer pair
+that calls `flush` periodically ONLY when at least one channel actually sets `durable = true`;
+a host with zero durable channels gets neither unit at all. A channel that leaves `durable`
+at its default (`false`) gets the exact same synchronous, one-attempt codepath nixpush has
+always had -- see `pkgs/nixpush.nix`'s `deliver_once` for exactly where that "unchanged when
+off" contract is upheld in the code itself, and `checks/behavior.nix` for the runtime proof.
+
+**Alternative considered:** reject the feature outright, on the grounds that [1] above already
+explains why v1 shipped with no daemon and no queue at all -- "the caller already owns this
+kind of state, don't duplicate it."
+
+**Why the alternative lost, for THIS specific case:** [1]'s argument holds for a caller that
+already runs on a recurring schedule and can reasonably re-interpret "did this get through" at
+its own next tick (a health-check daemon retrying its OWN probe). It does not hold for a
+caller whose alert is itself a one-off, fired once from a place that will not be re-checked --
+`OnFailure=` on a unit that only fails once, a script's own `trap ERR`, a one-shot migration's
+failure path. For that shape of caller, "the network blipped for the ten seconds this alert's
+own process was alive" really does mean the alert is gone forever under nixpush v1, with
+nothing anywhere positioned to notice and re-fire it. A caller-side retry loop cannot fix this
+either, because IT is the thing that already finished (successfully or not) by the time the
+network blip is over -- there is no "next tick" to retry from. The queue has to live somewhere
+between "the alert was raised" and "the bytes left the box," and for exactly this caller
+shape, nothing else in the system is positioned to own that gap.
+
+**Why this does not quietly turn nixpush into a daemon for everyone:** the load-bearing
+design choice is that `flush` is not a new KIND of process -- it is the SAME "one shell
+invocation, reads config fresh, execs a provider once per message, exits" shape `send` always
+was, just invoked once per spool entry instead of once per CLI call, and driven by a
+`Type = "oneshot"` systemd timer (the same shape nixwatch already uses for each of its own
+per-check ticks) rather than a `Type = "simple"` unit that stays resident. Nothing is ever
+resident in memory between flushes; nothing is shared across invocations except the plain
+files sitting in `spoolDir`. A consumer who never sets `durable = true` on any channel gets
+precisely nixpush v1's behavior, in full, including "no daemon anywhere in the composed
+system" -- checked concretely in `checks/assertions.nix`'s
+`checks/no-durable-channel-renders-no-flush-service-or-timer`.
+
+**Poison handling, and why a transient failure behaves differently:** a permanently-rejected
+entry (provider exit `3`) will never succeed no matter how many more times `flush` retries it
+-- leaving it in place would wedge every message enqueued after it forever, since drain order
+is oldest-first. Moving it to `<channel>/poison/` is the one thing that keeps the queue live
+without inventing a retry-count/backoff policy nixpush has no basis to choose on the caller's
+behalf (the exact kind of policy [1] and [2] both already argue belongs to the caller, not
+core). A transient failure gets the opposite treatment on purpose: it might well succeed next
+time, so `flush` stops that channel's drain exactly where it is (preserving oldest-first order
+for the next attempt) rather than skipping ahead -- skipping ahead would silently reorder
+delivery the first time a destination has one bad minute.
+
+## [5] Fallback triggers on unseal failure and hard rejection only, never on transient
+
+**Decision:** `nixpush.channels.<name>.fallback = "other";` degrades to `other` on exactly two
+conditions -- this channel's `secretFile` is configured but unreadable at send time ("failed
+to unseal"), or its provider returns `3` (permanently rejected, genuinely attempted first).
+Anything transient (any other nonzero exit) is relayed to the caller completely unchanged;
+fallback never engages. Followed exactly one hop -- the fallback channel's own `fallback`, if
+it sets one, is never chased.
+
+**Alternative considered:** fall back on ANY failure, transient included -- "the paging topic
+is unreachable, deliver the page some other way, whatever the reason."
+
+**Why the alternative lost:** a transient failure (a DNS hiccup, a `--max-time` timeout, a
+5xx from the push provider's own infrastructure) is, by construction, the ONE class of failure
+that might succeed on a plain retry against the SAME destination -- that is the entire reason
+the provider contract classifies it separately from `3` in the first place (see [2] above).
+Falling back on it too would mean a single bad second on the primary provider silently
+re-routes traffic to a DIFFERENT destination that was never actually broken, which is worse
+than doing nothing: an operator who later checks the primary "paging" topic and sees nothing
+there has no idea their alert actually went out somewhere else, under some other name, with no
+record connecting the two beyond a `fallbackFrom`/`fallbackReason` field an operator has to
+already know to go looking for. Restricting the trigger to unseal-failure and hard-rejection
+keeps the semantics legible: BOTH of those are genuinely, durably wrong about the primary
+channel right now (a secret that isn't there isn't going to appear mid-retry; a provider that
+just said "no" isn't going to say "yes" to the identical request a second later), which is
+exactly the situation a human configured a fallback destination to survive.
+
+**Why unseal failure and hard rejection get DIFFERENT internal treatment, despite both
+triggering the same fallback:** an unseal failure is caught BEFORE any provider is ever
+invoked -- there is no way to make an HTTP request (or whatever a given provider's transport
+is) with a credential that was never read, so nixpush does not try, and the primary's
+provider process never runs at all for that send. A hard rejection can only be discovered BY
+actually running the provider and reading its exit code back. `checks/behavior.nix` proves
+both shapes concretely: the unseal scenario shows exactly one provider invocation total (the
+fallback's), the hard-rejection scenario shows exactly two (the primary's real, genuine
+rejection, then the fallback's) -- the difference is directly observable, not just asserted.
+
+**Why exactly one hop, never a chain:** a fallback-of-a-fallback immediately raises "what if
+they point at each other" -- solvable (cycle detection, a hop-count limit), but for a feature
+whose entire point is "degrade ONE step to the plain, boring, always-on channel," a chain
+buys nothing a single hop doesn't already provide in the overwhelming common case (page ->
+noise), while adding a whole class of configuration mistake (a cycle) that then needs its own
+assertion, its own error message, and its own test coverage. The self-reference and
+unknown-channel assertions in `modules/default.nix` are the entire validation surface this
+needs; a real multi-hop requirement, if one ever appears, is exactly the kind of thing worth
+opening as its own dated entry in `experiments/`, not something to speculatively build now.

@@ -7,6 +7,36 @@
 # provider module, and flake.nix's `nixosModules.default` for the bundle
 # most consumers actually want.
 #
+# TWO OPT-IN GUARANTEES LAYERED ON TOP OF THE SAME THIN CORE (both default OFF, both leave a
+# channel that doesn't ask for them byte-for-byte unchanged -- see pkgs/nixpush.nix's
+# `deliver_once` header for exactly where that "unchanged when off" contract is upheld, and
+# checks/behavior.nix for the runtime proof of both, not just an eval-time one):
+#
+#   `channels.<name>.durable` -- a crash-safe on-disk spool. `nixpush send` on a durable
+#   channel never attempts delivery inline: it atomically enqueues under `spoolDir` and
+#   returns immediately, and a separate `nixpush flush` invocation -- wired to its own
+#   systemd service+timer pair below, but ONLY rendered once at least one channel actually
+#   sets `durable = true` -- drains every durable channel's spool oldest-enqueued-first,
+#   retrying real delivery. A permanently-rejected (exit `3`) entry is moved aside into
+#   `<channel>/poison/` instead of being retried forever, so one bad message can never wedge
+#   every message enqueued behind it; a transient failure instead stops that channel's flush
+#   run exactly where it is (preserving order) and is retried on the next tick. An outage
+#   therefore DELAYS delivery, it never drops it, and it survives both this CLI's own process
+#   exiting and a full host reboot, because the spool is nothing but ordinary files.
+#
+#   `channels.<name>.fallback` -- a channel to degrade to when THIS channel's delivery hits
+#   either of exactly two conditions: its `secretFile` failed to unseal (configured but
+#   unreadable -- the provider is never even invoked with missing credentials), or its
+#   provider returned a hard, permanent rejection (exit `3`, genuinely attempted first). A
+#   transient failure (anything else) never triggers this -- that is what retrying the SAME
+#   channel is for (the caller's own retry policy, or a later `flush` tick if durable), not
+#   switching destinations. Followed exactly ONE hop: the fallback channel's own `fallback`,
+#   if it sets one, is never chased, so a page -> noise -> ??? chain can never form.
+#
+# See docs/rationale.md [4] and [5] for why each of these could live here at all without the
+# README's "thin core, one delivery attempt, no daemon" thesis quietly becoming false for
+# every consumer, not just the ones who opt in.
+#
 # EVAL SAFETY: `nixpush.channels.<name>.provider` is a free-form
 # string, not `types.enum (attrNames cfg.providers)` -- providers can be
 # registered by OTHER modules (modules/providers/ntfy.nix, or a
@@ -25,6 +55,12 @@
 
 let
   cfg = config.nixpush;
+
+  # Whether ANY channel opted into the on-disk spool -- gates the entire flush service/timer
+  # pair and the spool directory's own tmpfiles rule below. A host with zero durable channels
+  # gets NONE of that machinery rendered at all; this is the "opt-in, not a daemon for
+  # everyone" line, drawn once, here.
+  hasDurableChannel = lib.any (c: c.durable) (lib.attrValues cfg.channels);
 
   # Renders one channel's entry in /etc/nixpush/channels.json. Never
   # dereferences `secretFile` -- its path is recorded so the CLI knows
@@ -49,6 +85,8 @@ let
       secretFile = channel.secretFile;
       defaultPriority = channel.defaultPriority;
       defaultTags = channel.defaultTags;
+      durable = channel.durable;
+      fallback = channel.fallback;
     };
 in
 {
@@ -68,6 +106,35 @@ in
       description = ''
         Channel used by `nixpush send` when `--channel` is omitted.
         Must be a key present in `nixpush.channels` (asserted).
+      '';
+    };
+
+    spoolDir = lib.mkOption {
+      type = lib.types.str;
+      default = "/var/lib/nixpush/spool";
+      description = ''
+        Root directory for every `durable` channel's on-disk spool -- one subdirectory per
+        channel name (e.g. `<spoolDir>/paging/`, with a `poison/` subdirectory under that for
+        permanently-rejected entries). Only ever created (mode `0700`, `root:root`) when at
+        least one channel actually sets `durable = true`; see that option's own description.
+        Losing this directory's contents loses whatever notifications were still queued and
+        not yet delivered -- it has no effect on any non-durable channel at all.
+      '';
+    };
+
+    flushInterval = lib.mkOption {
+      type = lib.types.str;
+      default = "1m";
+      description = ''
+        How often the `nixpush-flush` systemd timer fires `nixpush flush` (systemd time-span
+        syntax, e.g. `"30s"`, `"1min"`, `"5m"`) -- only rendered at all when at least one
+        channel sets `durable = true`. Deliberately a single, module-wide cadence rather than
+        a per-channel one (unlike nixwatch's per-check timers): flushing is not itself a
+        monitored condition with its own staleness deadline, it is the retry loop for
+        whatever channels opted into a spool, and they overwhelmingly share the same answer
+        to "how promptly should a backlog drain once the outage clears". Give one channel a
+        different cadence by wiring a private flush unit for it by hand if that default is
+        ever genuinely wrong.
       '';
     };
 
@@ -171,6 +238,61 @@ in
             default = [ ];
             description = "Tags applied when `nixpush send` is called without any `--tag`.";
           };
+
+          durable = lib.mkOption {
+            type = lib.types.bool;
+            default = false;
+            description = ''
+              Opt in to a crash-safe, on-disk spool for this channel. `nixpush send` on a
+              durable channel does not attempt delivery inline at all -- it atomically
+              enqueues the notification into `nixpush.spoolDir` and returns immediately
+              (`queued`, exit `0`), and a separate `nixpush flush` invocation (wired to a
+              systemd timer by this module whenever ANY channel sets this -- see
+              `flushInterval`) drains the spool oldest-enqueued-first, attempting real
+              delivery for each entry in turn. An outage on this channel's destination
+              therefore DELAYS delivery -- the entry stays spooled and is retried on the next
+              flush -- but never silently drops it, surviving both this CLI's own process
+              exiting and a full host restart, since the spool is nothing but ordinary files
+              under `nixpush.spoolDir`.
+
+              A message that comes back permanently rejected (exit `3`) during a flush is
+              moved to `<spoolDir>/<channel>/poison/` instead of being retried forever -- see
+              `nixpush flush`'s own reference in README.md -- so one bad message can never
+              wedge every message enqueued behind it.
+
+              Default `false`: `nixpush send` on a non-durable channel is BYTE-FOR-BYTE the
+              same synchronous, one-attempt, 0/3/other codepath nixpush has always had.
+              Turning this on is a real behavior change for THIS channel's callers -- a
+              `queued` success no longer means delivered -- so it is opt-in per channel,
+              deliberately, never global.
+            '';
+          };
+
+          fallback = lib.mkOption {
+            type = lib.types.nullOr lib.types.str;
+            default = null;
+            description = ''
+              Name of another `nixpush.channels.<name>` to degrade to when THIS channel's
+              delivery hits one of exactly two conditions: (a) its `secretFile` is set but
+              not readable at send time ("failed to unseal" -- e.g. sops-nix/agenix did not
+              render it, so the provider is never even invoked with missing credentials), or
+              (b) its provider exits `3` (permanently rejected -- a real, provider-classified
+              hard error, genuinely attempted first, not a network blip). A THIRD kind of
+              failure -- anything transient, exit code neither `0` nor `3` -- never triggers
+              this: retrying the SAME channel (via the caller's own retry policy, or a later
+              `nixpush flush` tick if this channel is `durable`) is the correct response to a
+              blip, not switching destinations.
+
+              Followed exactly ONE hop: the fallback channel's OWN `fallback` (if it sets
+              one) is never chased, so a page -> noise -> ??? chain can never form, and
+              there is nothing to prove acyclic beyond simple self-reference (asserted
+              below).
+
+              `null` (default): unchanged from nixpush's original behavior -- a channel with
+              an unreadable secretFile or a hard-rejecting provider fails exactly as before
+              (exit `2` for the former, exit `3` for the latter); nothing degrades anywhere.
+            '';
+          };
         };
 
         # Inherits this channel's provider's registered defaults (see
@@ -222,6 +344,29 @@ in
           '';
         })
         cfg.channels)
+      ++ (lib.mapAttrsToList
+        (name: channel: {
+          assertion = channel.fallback == null || channel.fallback != name;
+          message = ''
+            nixpush.channels.${name}.fallback references itself -- a channel cannot degrade
+            to its own destination.
+          '';
+        })
+        cfg.channels)
+      ++ (lib.mapAttrsToList
+        (name: channel: {
+          assertion = channel.fallback == null || lib.hasAttr channel.fallback cfg.channels;
+          message = ''
+            nixpush.channels.${name}.fallback is set to
+            "${toString channel.fallback}", but no such key exists in nixpush.channels.
+            Declared channels: ${
+              if cfg.channels == { }
+              then "(none)"
+              else lib.concatStringsSep ", " (lib.attrNames cfg.channels)
+            }.
+          '';
+        })
+        cfg.channels)
       ++ [
         {
           assertion = cfg.defaultChannel == null || lib.hasAttr cfg.defaultChannel cfg.channels;
@@ -238,6 +383,7 @@ in
       group = "nixpush";
       text = builtins.toJSON {
         defaultChannel = cfg.defaultChannel;
+        spoolDir = cfg.spoolDir;
         channels = lib.mapAttrs renderChannel cfg.channels;
       };
     };
@@ -250,5 +396,39 @@ in
     users.groups.nixpush = { };
 
     environment.systemPackages = [ cfg.package ];
+
+    # Everything below this point exists ONLY when at least one channel opted into
+    # `durable` -- a host with no durable channels gets no spool directory, no flush
+    # service, no flush timer, nothing. This is the "opt-in, never a daemon for everyone"
+    # line made concrete: `nixpush-flush` is a `Type = "oneshot"` unit driven entirely by
+    # its timer, the same shape nixwatch uses for each of ITS checks, never a
+    # long-running process of its own.
+    systemd.tmpfiles.rules = lib.mkIf hasDurableChannel [
+      "d ${cfg.spoolDir} 0700 root root - -"
+    ];
+
+    systemd.services.nixpush-flush = lib.mkIf hasDurableChannel {
+      description = "nixpush: flush every durable channel's on-disk spool";
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = "${cfg.package}/bin/nixpush flush";
+      };
+    };
+
+    systemd.timers.nixpush-flush = lib.mkIf hasDurableChannel {
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        # Fires promptly after boot too -- this is what "surviving a host restart" actually
+        # means in practice: whatever was still spooled when the host went down gets a real
+        # delivery attempt again soon after it comes back, not only `flushInterval` later.
+        OnBootSec = "10s";
+        OnUnitActiveSec = cfg.flushInterval;
+        # Catches up a missed tick across a period the HOST itself was down, same as
+        # nixwatch's own timers -- a spool that survives a restart is only half the
+        # guarantee if the timer that's supposed to drain it doesn't reliably fire again
+        # once it's back.
+        Persistent = true;
+      };
+    };
   };
 }

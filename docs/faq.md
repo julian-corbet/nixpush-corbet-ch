@@ -3,17 +3,18 @@
 These entries exist because code comments in `modules/*.nix` and `pkgs/*.nix` point back to
 them by name. If a comment says "see docs/faq.md", the matching heading is here.
 
-## Why is there no daemon or persistent queue?
+## Why is there no daemon, and why is a channel's queue opt-in rather than the default?
 
-See [`rationale.md` \[1\]](rationale.md#1-stateless-synchronous-cli-no-daemon-no-queue-core-v1).
-Short version: nixpush's actual callers (health-check daemons, watchdog timers, `OnFailure=`
-units) already own their own "did this alert get through" state, because they already run on
-a schedule and already need to interpret "I didn't hear back" at the application level. A
-second, independent retry/backoff/spool state machine underneath that would duplicate a
-guarantee the caller usually needs anyway, for real added complexity (atomic write/rename,
-crash recovery, backpressure eviction). Deferred to a possible future `nixpush-daemon`
-package, not discarded — see the README's
-[Non-goals & future direction](../README.md#non-goals--future-direction).
+See [`rationale.md` \[1\]](rationale.md#1-stateless-synchronous-cli-by-default-no-daemon-core).
+Short version: nixpush's most common callers (health-check daemons, watchdog timers,
+`OnFailure=` units that get another tick regardless) already own their own "did this alert get
+through" state, because they already run on a schedule and already need to interpret "I didn't
+hear back" at the application level. Defaulting every channel to a queue would duplicate a
+guarantee most callers already have, for real added complexity paid on every send. But that
+argument does NOT hold for a caller whose alert is a genuine one-off with no next tick to
+retry from — see [`rationale.md` \[4\]](rationale.md#4-an-opt-in-per-channel-spool-not-a-repo-wide-daemon)
+for why `channels.<name>.durable = true` exists for exactly that shape, and for why it still
+doesn't turn nixpush into a daemon for anyone who never asks for it.
 
 ## Why does `nixpush send` only make one delivery attempt, with no internal retry?
 
@@ -58,6 +59,40 @@ that the CLI sources fresh into the environment for one `send` invocation and ne
 anywhere nixpush controls. See
 [`rationale.md` \[3\]](rationale.md#3-secretfile-is-sourced-fresh-per-invocation-never-baked-into-channelsjson)
 for the full reasoning.
+
+## Doesn't `nixpush flush` mean there's a daemon now?
+
+No -- `flush` is a plain, one-shot CLI invocation, exactly the same shape `send` always was:
+read `/etc/nixpush/channels.json` fresh, do some work, exit. Nothing about it stays resident
+in memory between invocations, and nothing is shared across invocations except the plain files
+sitting in `nixpush.spoolDir`. `modules/default.nix` wires a `Type = "oneshot"` systemd
+service to a timer that calls `nixpush flush` periodically -- and only renders that
+service/timer pair at all once at least one channel sets `durable = true`. A host that never
+opts any channel into `durable` gets no spool directory, no flush service, no flush timer;
+`nixpush send` on every one of its channels is byte-for-byte the same synchronous, one-attempt
+codepath as before this existed. See
+[`rationale.md` \[4\]](rationale.md#4-an-opt-in-per-channel-spool-not-a-repo-wide-daemon) for
+the full "why this doesn't quietly break the 'no daemon' thesis" reasoning, and
+`checks/assertions.nix`'s `checks/no-durable-channel-renders-no-flush-service-or-timer` for
+where that claim is actually checked, not just asserted in prose.
+
+## Why does `fallback` ignore transient failures?
+
+Because a transient failure (a DNS hiccup, a timeout, a provider's own 5xx) is, by
+definition, the one class of failure that might succeed on a plain retry against the SAME
+destination -- see [`rationale.md` \[2\]](rationale.md#2-three-exit-code-classes-not-two-not-five)
+for why the provider contract already classifies it separately from a hard `3` rejection.
+Falling back on it too would mean one bad second on the primary provider silently re-routes
+the alert to a completely different destination that was never actually broken -- worse than
+doing nothing, since an operator checking the primary topic afterward would see nothing there
+and have no idea the alert went out somewhere else. `fallback` triggers on exactly two
+conditions instead: the primary's `secretFile` failed to unseal (the provider is never even
+invoked), or the primary's provider genuinely ran and hard-rejected (exit `3`). Both are
+durably true about the primary right now in a way a transient blip is not. See
+[`rationale.md` \[5\]](rationale.md#5-fallback-triggers-on-unseal-failure-and-hard-rejection-only-never-on-transient)
+for the full reasoning, and `checks/behavior.nix`'s own transient-failure scenario for where
+this is proven to actually hold at runtime, in both directions (the two conditions that DO
+trigger it, and the one that must not).
 
 ## Why does `nixpush doctor` sometimes report a channel FAILED when it's actually fine?
 
