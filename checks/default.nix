@@ -6,8 +6,9 @@
 #   EVAL-TIME assertion tests (checks/assertions.nix, folded into `eval-tests` below): each
 #   evaluates a real configuration through NixOS's own eval-config.nix and asks whether
 #   forcing `system.build.toplevel` fails. Nothing here runs a generated script -- this only
-#   covers the durable/fallback option surface's own assertions, since that is the surface
-#   this repo's fleet-watchdog generalization work actually added.
+#   covers the durable/fallback option surface's own assertions -- the surface this repo added
+#   once a real consumer (nixwatch, generalizing its own private watchdog implementation onto
+#   this CLI) actually needed it (see docs/rationale.md [4] and [5]).
 #
 #   A BUILD-LEVEL behavioral proof (checks/behavior.nix, exported separately as
 #   `behavior-proof`): the one thing eval-time checks cannot see -- the real `nixpush` CLI's

@@ -32,8 +32,8 @@ one-shot migration's failure path. For that shape, a network blip during the ten
 alerting process was alive really does mean the alert is gone forever, with nothing anywhere
 positioned to notice and re-fire it. `channels.<name>.durable = true` (see [4]) is exactly
 this repo's answer for that caller shape — added later than v1, once a real consumer
-(nixwatch's own generalization of a private `fleet-watchdog.nix`) hit it, not spelled out here
-originally. The decision above still holds as the DEFAULT for every channel that doesn't ask
+(nixwatch, generalizing its own private watchdog implementation onto this CLI) hit it, not
+spelled out here originally. The decision above still holds as the DEFAULT for every channel that doesn't ask
 otherwise; it was never a claim that no caller would ever need more.
 
 ## [2] Three exit-code classes, not two, not five
