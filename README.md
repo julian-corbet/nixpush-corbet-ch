@@ -369,27 +369,6 @@ Still explicitly out of scope for core — the caller's responsibility, by desig
   in general). Monitor disk usage under `spoolDir` for a durable channel expected to see real
   traffic during a long-lived outage, the same way you would for any other on-disk queue.
 
-Two things that used to be listed here as deferred are not deferred anymore — both are real,
-both are opt-in per channel, and neither changes anything for a channel that doesn't ask for
-it:
-
-- **A crash-safe on-disk spool** (`channels.<name>.durable = true;` — see
-  [Durable channels](#durable-channels-a-crash-safe-spool)). An outage on a durable channel's
-  destination DELAYS delivery instead of dropping it, surviving both this CLI's own process
-  exiting and a full host reboot. See
-  [docs/rationale.md \[4\]](docs/rationale.md#4-an-opt-in-per-channel-spool-not-a-repo-wide-daemon)
-  for why this could live here without the "thin core, one delivery attempt, no daemon" thesis
-  above quietly becoming false for every consumer, not just the ones who opt in.
-- **A channel-with-fallback** (`channels.<name>.fallback = "other";` — see
-  [Channel fallback](#channel-fallback-unseal-failure-vs-hard-rejection)). Degrades to the
-  named channel on an unseal failure or a hard rejection — never on a transient blip, never
-  chained past one hop. See
-  [docs/rationale.md \[5\]](docs/rationale.md#5-fallback-triggers-on-unseal-failure-and-hard-rejection-only-never-on-transient)
-  for why those two conditions specifically, and no others.
-
-Both are proven at RUNTIME, not just at eval time, in `checks/behavior.nix` — see the
-Repository layout table above.
-
 ## Related projects
 
 nixpush is one of several small, independently-usable open-source projects sharing a common

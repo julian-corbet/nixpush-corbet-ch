@@ -13,14 +13,14 @@
 # way -- and each channel submodule (also in modules/default.nix) reads
 # that registry, keyed by its OWN sibling `provider` field, to compute
 # its `settings`/`secretFile` defaults. This module never reads
-# `nixpush.channels` at all. An earlier version of this file
-# tried to inject defaults by `lib.mapAttrs (...) cfg.channels` directly
-# -- i.e. making `channels`'s own value a function of `channels`'s own
-# merged value -- and hit a real `infinite recursion encountered` at
-# eval time (caught while writing this module, not theoretical). See
-# the `providerDefaults` option's own comment in modules/default.nix for
-# the full "why" if you're tempted to reintroduce that shape for a new
-# provider.
+# `nixpush.channels` at all.
+#
+# DON'T inject defaults via `lib.mapAttrs (...) cfg.channels` directly --
+# that makes `channels`'s own value a function of `channels`'s own merged
+# value, an actual circular definition (`infinite recursion encountered`
+# at eval time). See the `providerDefaults` option's own comment in
+# modules/default.nix for the full "why" if you're tempted to reintroduce
+# that shape for a new provider.
 { lib, config, pkgs, ... }:
 
 let
