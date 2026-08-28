@@ -137,6 +137,14 @@ that's just what the first-party provider happens to use.
    into `nixpush.providers` from the consumer's flake; open an issue here to get
    listed in README.md's provider list once yours exists and works.
 
+## Contributor agreement
+
+By submitting a contribution, you agree to the
+[Individual Contributor License Agreement](https://github.com/corbet-labs/.github/blob/cla-v1.0/CLA.md).
+Include this exact affirmation in your pull request description:
+
+> I have read and agree to version 1.0 of the Individual Contributor License Agreement at https://github.com/corbet-labs/.github/blob/cla-v1.0/CLA.md.
+
 ## Reporting issues
 
 Regular GitHub issues are fine for everything here — nixpush has no secrets-handling code of
